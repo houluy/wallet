@@ -10,6 +10,7 @@ import urllib
 from urllib.error import HTTPError
 import random
 import logging
+import pathlib
 
 import constant
 
@@ -46,7 +47,6 @@ class Operation:
             header_signature=transaction_id,
             payload=payload,
         )
-        logger.debug(txn)
         return txn
     
     def generate_batch_list(self, *txns):
@@ -78,12 +78,12 @@ class Operation:
         else:
             res_js = response.json()
             status_link = res_js["link"]
-        try:
-            print("Retrieving transaction receipt...")
-            response = requests.get(status_link)
-            print(response.text)
-        except HTTPError as e:
-            print(e)
+        #try:
+        #    print("Retrieving transaction receipt...")
+        #    response = requests.get(status_link)
+        #    print(response.text)
+        #except HTTPError as e:
+        #    print(e)
 
     def get_address(self, name):
         return self.family_prefix + sha512(name.encode()).hexdigest()[:constant.ADDRESS_SUFFIX_LEN]
@@ -134,13 +134,33 @@ class Operation:
 class Wallet:
     def __init__(self, name, init_balance=0):
         self.name = name
-        self.oper = Operation()
-        self.init_balance = init_balance
-        try:
-            self.oper.create_account(self.name, self.init_balance)
-        except InvalidTransaction as e:
-            logger.error(f"New account {self.name} fails to be created")
-        
+        self.cache_file = pathlib.Path(f"cache/{self.name}.json")
+        if self.cache_file.exists():  # An existing account
+            try:
+                attrs = self.load()
+            except EOFError as e:
+                self.cache_file.unlink()
+                logger.warning(f"Cache file has been damaged and removed, please retry")
+            else:
+                self.balance = attrs["balance"]
+                self.check_balance()
+                logger.info(f"Loaded an exising account named {self.name}")
+        else:  # A new account
+            self.oper = Operation()
+            self.balance = init_balance
+            try:
+                self.oper.create_account(self.name, self.balance)
+            except InvalidTransaction as e:
+                logger.error(f"New account {self.name} fails to be created")
+            self.cache()
+            logger.info(f"New account {self.name} created with balance {self.balance}")
+
+    def check_balance(self):
+        pass
+
+    def query_balance(self):
+        self.oper.get_balance(self.name)
+
     def transfer(self, dst, amount):
         try:
             self.oper.transfer_money(self, dst, amount)
@@ -149,6 +169,19 @@ class Wallet:
         except constant.OutOfBalanceException as e:
             logger.error(f"Account {self.name} does not have enough money ({amount})!")
         else:
+            self.balance -= amount
             logger.info(f"Transfer {amount} from {self.name} to {dst}")
+    
+    def cache(self):
+        attrs = {
+            "balance": self.balance,
+        }
+        with open(self.cache_file, "w") as f:
+            json.dump(attrs, f)
+
+    def load(self):
+        with open(self.cache_file, "r") as f:
+            attrs = json.load(f)
+        return attrs
 
 
