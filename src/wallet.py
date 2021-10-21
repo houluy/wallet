@@ -34,7 +34,7 @@ class Operation:
             family_name=self.family_name,
             family_version=self.family_version,
             inputs=inputs,
-            outputs=inputs,
+            outputs=outputs,
             signer_public_key=self.signer_public_key,
             batcher_public_key=self.signer_public_key,
             dependencies=[],
@@ -104,8 +104,8 @@ class Operation:
             "name": name,
             "balance": default_balance,
         }
-        inputs = self.get_address(name)
-        return json.dumps(op_dic), [inputs], []
+        inputs = outputs = self.get_address(name)
+        return json.dumps(op_dic), [inputs], [outputs]
 
     @transaction
     def transfer_money(self, src, dst, amount):
@@ -117,8 +117,8 @@ class Operation:
             "receiver": receiver_addr,
             "amount": amount,
         }
-        inputs = [sender_addr, receiver_addr]
-        return json.dumps(op_dic), inputs, []
+        inputs = outputs = [sender_addr, receiver_addr]
+        return json.dumps(op_dic), inputs, outputs
 
     @transaction
     def get_balance(self, name):
@@ -137,11 +137,20 @@ class Operation:
             "name": name,
             "amount": amount,
         }
-        inputs = self.get_address(name)
-        return json.dumps(op_dic), [inputs], []
+        inputs = outputs = self.get_address(name)
+        return json.dumps(op_dic), [inputs], [outputs]
 
     def withdraw(self, name, amount):
         return self.deposit(name, -amount)
+
+    @transaction
+    def purge(self, name):
+        op_dic = {
+            "typ": "purge",
+            "name": name,
+        }
+        inputs = outputs = self.get_address(name)
+        return json.dumps(op_dic), [inputs], [outputs]
 
 
 class Wallet:
@@ -202,6 +211,11 @@ class Wallet:
         else:
             self.balance -= amount
             logger.info(f"Transfer {amount} from {self.name} to {dst}")
+
+    def purge(self):
+        logger.info(f"NOTE: This will purge the account completely, all balance will be liquidated.")
+        self.oper.purge(self.name)
+        self.cache_file.unlink()
     
     def cache(self):
         attrs = {

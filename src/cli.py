@@ -26,6 +26,11 @@ def withdraw(args):
     wallet = Wallet(name=name)
     wallet.withdraw(amount)
 
+def purge(args):
+    name = args.name
+    wallet = Wallet(name=name)
+    wallet.purge()
+
 
 parser = argparse.ArgumentParser(description="A wallet by Hyperledger Sawtooth", prog="Sawlet")
 
@@ -56,4 +61,10 @@ withdraw_parser = subparsers.add_parser("withdraw", help="Withdraw money.")
 withdraw_parser.add_argument("name", type=str, help="Name of the account.")
 withdraw_parser.add_argument("amount", type=int, help="Amount of the money.")
 withdraw_parser.set_defaults(func=withdraw)
+
+purge_parser = subparsers.add_parser("purge", help=("Purge an account. Note that the account is only purged at current block, it is still "
+    "visible from previous blocks due to immutability of blockchain."))
+
+purge_parser.add_argument("name", type=str, help="Name of the account.")
+purge_parser.set_defaults(func=purge)
 

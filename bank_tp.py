@@ -6,6 +6,7 @@ from src.exceptions import *
 
 import json
 import hashlib
+from collections.abc import Sequence
 
 import constant
 import logging
@@ -70,10 +71,8 @@ class TransferTransactionHandler(TransactionHandler):
     def change(self, payload, context):
         account_name = payload["name"]
         amount = payload["amount"]
-        account_address = self.get_address(account_name)
-        account = context.get_state([account_address])[0]
-        account = json.loads(account.data)
-        balance = account["balance"]
+        account_address, account_data = self.get_data_by_name(account_name, context)
+        balance = account_data["balance"]
         if amount >= 0:
             abs_amount = amount
             operation = "Deposit"
@@ -84,16 +83,47 @@ class TransferTransactionHandler(TransactionHandler):
                 raise OutOfBalanceError(f"Account {account_name} does not have enough money (${balance}) to withdraw (${abs_amount}). ")
             operation = "Withdraw"
             prep = "from"
-        account["balance"] += amount
+        account_data["balance"] += amount
         data = {
-            account_address: json.dumps(account).encode(),
+            account_address: json.dumps(account_data).encode(),
         }
         context.set_state(data, timeout=constant.TXTIMEOUT)
         logger.info(f"{operation} amount {abs_amount} {prep} account {account_name} succeeded.")
 
+    def query(self, payload, context):
+        account_name = payload["name"]
+        key = payload["key"]
+
+
+    def purge(self, payload, context):
+        account_name = payload["name"]
+        #account_address, data = self.get_data_by_name(account_name, context)
+        #@logger.debug(account_address)
+        account_address = self.get_address(account_name)
+        context.delete_state([account_address], timeout=constant.TXTIMEOUT)
+        logger.info(f"Account {account_name} is purged successfully!")
+
     def dispatch(self, operation, payload, context):
         "Dispatch transaction operations to instance methods and call with parameters @payload and @context."
         return getattr(self, operation)(payload, context)
+
+    def get_data_by_name(self, name, context):
+        """
+        Return:
+            %address: address of the name
+            %data:    target data
+        """
+        address = self.get_address(name)
+        print(name, address)
+        return address, self.get_data(address, context)
+
+    def get_data(self, addresses, context):
+        if isinstance(addresses, Sequence):
+            data = context.get_state(addresses)
+            return [json.loads[i.data] for i in data]
+        else:
+            data = context.get_state([addresses])[0].data
+            return json.loads(data)
 
     def get_address(self, name):
         return self._namespace_prefix + hashlib.sha512(name.encode()).hexdigest()[:constant.ADDRESS_SUFFIX_LEN]
