@@ -130,12 +130,26 @@ class Operation:
         inputs = self.get_address(name)
         return json.dumps(op_dic), [inputs], []
 
+    @transaction
+    def deposit(self, name, amount):
+        op_dic = {
+            "typ": "change",
+            "name": name,
+            "amount": amount,
+        }
+        inputs = self.get_address(name)
+        return json.dumps(op_dic), [inputs], []
+
+    def withdraw(self, name, amount):
+        return self.deposit(name, -amount)
+
 
 class Wallet:
-    def __init__(self, name, init_balance=0):
+    def __init__(self, name, init_balance=0, force=False):
         self.name = name
         self.cache_file = pathlib.Path(f"cache/{self.name}.json")
-        if self.cache_file.exists():  # An existing account
+        self.oper = Operation()
+        if self.cache_file.exists() and not force:  # An existing account
             try:
                 attrs = self.load()
             except EOFError as e:
@@ -146,7 +160,6 @@ class Wallet:
                 self.check_balance()
                 logger.info(f"Loaded an exising account named {self.name}")
         else:  # A new account
-            self.oper = Operation()
             self.balance = init_balance
             try:
                 self.oper.create_account(self.name, self.balance)
@@ -158,9 +171,27 @@ class Wallet:
     def check_balance(self):
         pass
 
+    def auto_cache(func):
+        def wrapper(self, *args, **kwargs):
+            func(self, *args, **kwargs)
+            self.cache()
+        return wrapper
+
+    @auto_cache
     def query_balance(self):
         self.oper.get_balance(self.name)
+    
+    @auto_cache
+    def deposit(self, amount):
+        self.oper.deposit(self.name, amount)
+        self.balance += amount
 
+    @auto_cache
+    def withdraw(self, amount):
+        self.oper.withdraw(self.name, amount)
+        self.balance -= amount
+
+    @auto_cache
     def transfer(self, dst, amount):
         try:
             self.oper.transfer_money(self, dst, amount)
