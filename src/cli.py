@@ -31,6 +31,12 @@ def purge(args):
     wallet = Wallet(name=name)
     wallet.purge()
 
+def query(args):
+    name = args.name
+    key = args.key
+    wallet = Wallet(name=name)
+    wallet.query()
+
 
 parser = argparse.ArgumentParser(description="A wallet by Hyperledger Sawtooth", prog="Sawlet")
 

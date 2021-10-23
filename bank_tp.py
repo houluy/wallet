@@ -6,7 +6,8 @@ from src.exceptions import *
 
 import json
 import hashlib
-from collections.abc import Sequence
+from collections.abc import MutableSequence
+import struct
 
 import constant
 import logging
@@ -93,12 +94,20 @@ class TransferTransactionHandler(TransactionHandler):
     def query(self, payload, context):
         account_name = payload["name"]
         key = payload["key"]
-
+        account_address, account_data = self.get_data_by_name(account_name, context)
+        try:
+            print(account_data)
+            value = account_data[key]
+        except KeyError:
+            raise InvalidTransaction(f"Key {key} does not exist in account {account_name}.")
+        else:
+            value_bytes = struct.pack("<I", value)
+            print(value_bytes)
+            context.add_receipt_data(value_bytes, timeout=constant.TXTIMEOUT)
+        logger.info(f"Query {key} from {account_name} got value {value}")
 
     def purge(self, payload, context):
         account_name = payload["name"]
-        #account_address, data = self.get_data_by_name(account_name, context)
-        #@logger.debug(account_address)
         account_address = self.get_address(account_name)
         context.delete_state([account_address], timeout=constant.TXTIMEOUT)
         logger.info(f"Account {account_name} is purged successfully!")
@@ -114,15 +123,15 @@ class TransferTransactionHandler(TransactionHandler):
             %data:    target data
         """
         address = self.get_address(name)
-        print(name, address)
         return address, self.get_data(address, context)
 
     def get_data(self, addresses, context):
-        if isinstance(addresses, Sequence):
+        if isinstance(addresses, MutableSequence):
             data = context.get_state(addresses)
             return [json.loads[i.data] for i in data]
         else:
             data = context.get_state([addresses])[0].data
+            print(addresses, data)
             return json.loads(data)
 
     def get_address(self, name):

@@ -11,6 +11,9 @@ from urllib.error import HTTPError
 import random
 import logging
 import pathlib
+import time
+import struct
+import base64
 
 import constant
 
@@ -30,7 +33,7 @@ class Operation:
 
     def generate_transaction(self, payload, inputs=None, outputs=None):
         payload = payload.encode()
-        txn_header_bytes = TransactionHeader(
+        tx_dic = dict(
             family_name=self.family_name,
             family_version=self.family_version,
             inputs=inputs,
@@ -40,16 +43,22 @@ class Operation:
             dependencies=[],
             nonce=str(random.randint(0, 1000000)),
             payload_sha512=sha512(payload).hexdigest(),
-        ).SerializeToString()
+        )
+        txn_header_bytes = TransactionHeader(**tx_dic).SerializeToString()
         transaction_id = self.signer.sign(txn_header_bytes)
         txn = Transaction(
             header=txn_header_bytes,
             header_signature=transaction_id,
             payload=payload,
         )
-        return txn
+        return txn, transaction_id
     
     def generate_batch_list(self, *txns):
+        """
+        Return:
+            @batch_sig: Batch ID
+            @batch_list_bytes: Batch data
+        """
         batch_header_bytes = BatchHeader(
             signer_public_key=self.signer_public_key,
             transaction_ids=[txn.header_signature for txn in txns],
@@ -62,11 +71,10 @@ class Operation:
             transactions=txns,
         )
         batch_list_bytes = BatchList(batches=[batch]).SerializeToString()
-        return batch_list_bytes
+        return batch_sig, batch_list_bytes
 
     def request_txs(self, batch_list_bytes):
         try:
-            print("Sending request...")
             batch_url = urllib.parse.urljoin(self.base_url, "batches")
             response = requests.post(
                 batch_url,
@@ -91,12 +99,34 @@ class Operation:
     def transaction(func):
         def wrapper(self, *args, **kwargs):
             payload, inputs, outputs = func(self, *args, **kwargs)
-            logger.debug(f"payload: {payload}, inputs: {inputs}, outputs: {outputs}")
-            tx = self.generate_transaction(payload, inputs, outputs)
-            batch_bytes = self.generate_batch_list(tx)
+            tx, txid = self.generate_transaction(payload, inputs, outputs)
+            batch_id, batch_bytes = self.generate_batch_list(tx)
             self.request_txs(batch_bytes)
+            return txid, batch_id
         return wrapper
 
+    def receipt(func):
+        def wrapper(self, *args, **kwargs):
+            txid, batch_id = func(self, *args, **kwargs)
+            status = None
+            max_retry = 10
+            ind = 0
+            while status != "COMMITTED" and ind < max_retry:
+                status = self.check_batch_status(batch_id)
+                time.sleep(0.3)
+                ind += 1
+            return self.fetch_receipt(txid)
+        return wrapper
+
+    def check_batch_status(self, batch_id):
+        batch_status_url = urllib.parse.urljoin(self.base_url, "batch_statuses")
+        query_data = {"id": batch_id}
+        response = requests.get(
+            batch_status_url,
+            params=query_data,
+        )
+        return response.json()["data"][0]["status"]
+    
     @transaction
     def create_account(self, name, default_balance=0):
         op_dic = {
@@ -120,6 +150,7 @@ class Operation:
         inputs = outputs = [sender_addr, receiver_addr]
         return json.dumps(op_dic), inputs, outputs
 
+    @receipt
     @transaction
     def get_balance(self, name):
         op_dic = {
@@ -127,7 +158,7 @@ class Operation:
             "name": name,
             "key": "balance",
         }
-        inputs = self.get_address(name)
+        inputs = outputs = self.get_address(name)
         return json.dumps(op_dic), [inputs], []
 
     @transaction
@@ -152,6 +183,17 @@ class Operation:
         inputs = outputs = self.get_address(name)
         return json.dumps(op_dic), [inputs], [outputs]
 
+    def fetch_receipt(self, txid):
+        receipt_url = urllib.parse.urljoin(self.base_url, "receipts")
+        params = {
+            "id": txid,
+        }
+        response = requests.get(
+            receipt_url,
+            params=params,
+        )
+        return response.json()["data"]
+
 
 class Wallet:
     def __init__(self, name, init_balance=0, force=False):
@@ -165,9 +207,10 @@ class Wallet:
                 self.cache_file.unlink()
                 logger.warning(f"Cache file has been damaged and removed, please retry")
             else:
+                logger.info(f"Loaded an exising account named {self.name}")
                 self.balance = attrs["balance"]
                 self.check_balance()
-                logger.info(f"Loaded an exising account named {self.name}")
+                logger.info(f"Balance checked -- ${self.balance}!")
         else:  # A new account
             self.balance = init_balance
             try:
@@ -178,7 +221,11 @@ class Wallet:
             logger.info(f"New account {self.name} created with balance {self.balance}")
 
     def check_balance(self):
-        pass
+        balance = self.query_balance()
+        if balance != self.balance:
+            logger.info(f"Balance in cache (${self.balance}) is not same as in blockchain (${balance}). Re-Synchronizing...")
+            self.balance = balance
+            self.cache() 
 
     def auto_cache(func):
         def wrapper(self, *args, **kwargs):
@@ -186,19 +233,23 @@ class Wallet:
             self.cache()
         return wrapper
 
-    @auto_cache
     def query_balance(self):
-        self.oper.get_balance(self.name)
+        data = self.oper.get_balance(self.name)
+        value_bytes = base64.b64decode(data[0]["data"][0])
+        balance = struct.unpack("<I", value_bytes)[0]
+        return balance
     
     @auto_cache
     def deposit(self, amount):
         self.oper.deposit(self.name, amount)
         self.balance += amount
+        logger.info(f"Account {self.name} deposits ${amount}, new balance: ${self.balance}")
 
     @auto_cache
     def withdraw(self, amount):
         self.oper.withdraw(self.name, amount)
         self.balance -= amount
+        logger.info(f"Account {self.name} withdraws ${amount}, new balance: ${self.balance}")
 
     @auto_cache
     def transfer(self, dst, amount):
@@ -210,7 +261,9 @@ class Wallet:
             logger.error(f"Account {self.name} does not have enough money ({amount})!")
         else:
             self.balance -= amount
-            logger.info(f"Transfer {amount} from {self.name} to {dst}")
+            dst.balance += amount
+            dst.cache()
+            logger.info(f"Transfer ${amount} from {self.name} to {dst.name}, new balance: {self.name}:${self.balance}, {dst.name}:${dst.balance}")
 
     def purge(self):
         logger.info(f"NOTE: This will purge the account completely, all balance will be liquidated.")
