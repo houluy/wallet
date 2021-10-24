@@ -4,7 +4,8 @@ from src.wallet import Wallet
 def create(args):
     name = args.name
     balance = args.balance
-    new_wallet = Wallet(name=name, init_balance=balance, force=args.new)
+    new_wallet = Wallet(name=name)
+    new_wallet.create(balance=balance, force=args.new)
 
 def transfer(args):
     src = args.src
@@ -73,4 +74,9 @@ purge_parser = subparsers.add_parser("purge", help=("Purge an account. Note that
 
 purge_parser.add_argument("name", type=str, help="Name of the account.")
 purge_parser.set_defaults(func=purge)
+
+query_parser = subparsers.add_parser("query", help="Query account.")
+
+query_parser.add_argument("name", type=str, help="Name of the account.")
+query_parser.set_defaults(func=query)
 

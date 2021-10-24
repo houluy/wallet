@@ -143,8 +143,8 @@ class Operation:
         receiver_addr = self.get_address(dst.name)
         op_dic = {
             "typ": "transfer",
-            "sender": sender_addr,
-            "receiver": receiver_addr,
+            "sender": src.name,
+            "receiver": dst.name,
             "amount": amount,
         }
         inputs = outputs = [sender_addr, receiver_addr]
@@ -196,9 +196,11 @@ class Operation:
 
 
 class Wallet:
-    def __init__(self, name, init_balance=0, force=False):
+    def __init__(self, name):
         self.name = name
         self.cache_file = pathlib.Path(f"cache/{self.name}.json")
+        
+    def create(self, balance=0, force=False):
         self.oper = Operation()
         if self.cache_file.exists() and not force:  # An existing account
             try:
@@ -212,7 +214,7 @@ class Wallet:
                 self.check_balance()
                 logger.info(f"Balance checked -- ${self.balance}!")
         else:  # A new account
-            self.balance = init_balance
+            self.balance = balance
             try:
                 self.oper.create_account(self.name, self.balance)
             except InvalidTransaction as e:

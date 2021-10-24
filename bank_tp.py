@@ -51,8 +51,10 @@ class TransferTransactionHandler(TransactionHandler):
         logger.info(f"Account {account_name} with initial balance {balance} created.")
 
     def transfer(self, payload, context):
-        sender_address = payload["sender"]
-        receiver_address = payload["receiver"]
+        sender_name = payload["sender"]
+        receiver_name = payload["receiver"]
+        sender_address = self.get_address(sender_name)
+        receiver_name = self.get_address(receiver_name)
         amount = payload["amount"]
         sender = context.get_state([sender_address])[0]
         sender = json.loads(sender.data)
@@ -67,7 +69,7 @@ class TransferTransactionHandler(TransactionHandler):
             sender_address: json.dumps(sender).encode(),
             receiver_address: json.dumps(receiver).encode(),
         }, timeout=constant.TXTIMEOUT)
-        logger.info(f"Transfer from {sender_address} to {receiver_address} with amount {amount} succeeded.")
+        logger.info(f"Transfer from {sender_name} to {receiver_name} with amount {amount} succeeded.")
 
     def change(self, payload, context):
         account_name = payload["name"]
