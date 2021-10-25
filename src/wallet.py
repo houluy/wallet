@@ -113,8 +113,8 @@ class Operation:
             ind = 0
             while status != "COMMITTED" and ind < max_retry:
                 status = self.check_batch_status(batch_id)
-                time.sleep(0.3)
                 ind += 1
+                time.sleep(0.5)
             return self.fetch_receipt(txid)
         return wrapper
 
@@ -199,20 +199,11 @@ class Wallet:
     def __init__(self, name):
         self.name = name
         self.cache_file = pathlib.Path(f"cache/{self.name}.json")
+        self.oper = Operation()
         
     def create(self, balance=0, force=False):
-        self.oper = Operation()
         if self.cache_file.exists() and not force:  # An existing account
-            try:
-                attrs = self.load()
-            except EOFError as e:
-                self.cache_file.unlink()
-                logger.warning(f"Cache file has been damaged and removed, please retry")
-            else:
-                logger.info(f"Loaded an exising account named {self.name}")
-                self.balance = attrs["balance"]
-                self.check_balance()
-                logger.info(f"Balance checked -- ${self.balance}!")
+            attrs = self.load()
         else:  # A new account
             self.balance = balance
             try:
@@ -234,6 +225,12 @@ class Wallet:
             func(self, *args, **kwargs)
             self.cache()
         return wrapper
+
+    def query(self, key):
+        query_func = f"query_{key}"
+        value = getattr(self, query_func)()
+        logger.info(f"Account {self.name} has {key} value of {value}")
+        return value
 
     def query_balance(self):
         data = self.oper.get_balance(self.name)
@@ -279,9 +276,20 @@ class Wallet:
         with open(self.cache_file, "w") as f:
             json.dump(attrs, f)
 
-    def load(self):
-        with open(self.cache_file, "r") as f:
+    def load(self, check=False):
+        try:
+            f = open(self.cache_file, "r")
             attrs = json.load(f)
+        except (FileNotFoundError, EOFError, json.decoder.JSONDecodeError):
+            logger.info(f"Account {self.name} does not exists or has been damaged in local cache, try to sychronize with blockchain.")
+        else:
+            logger.info(f"Loaded an exising account named {self.name}")
+            self.balance = attrs["balance"]
+            if check:
+                self.check_balance()
+                logger.info(f"Balance checked -- ${self.balance}!")
+        finally:
+            f.close()
         return attrs
 
 
