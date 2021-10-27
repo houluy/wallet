@@ -54,7 +54,7 @@ class TransferTransactionHandler(TransactionHandler):
         sender_name = payload["sender"]
         receiver_name = payload["receiver"]
         sender_address = self.get_address(sender_name)
-        receiver_name = self.get_address(receiver_name)
+        receiver_address = self.get_address(receiver_name)
         amount = payload["amount"]
         sender = context.get_state([sender_address])[0]
         sender = json.loads(sender.data)

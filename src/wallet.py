@@ -158,8 +158,30 @@ class Operation:
             "name": name,
             "key": "balance",
         }
-        inputs = outputs = self.get_address(name)
+        inputs = self.get_address(name)
         return json.dumps(op_dic), [inputs], []
+
+    def get_list(self):
+        state_url = urllib.parse.urljoin(self.base_url, "state")
+        query = {
+            "address": self.family_prefix,
+        }
+        response = requests.get(
+            state_url,
+            params=query,
+        )
+        if response.status_code == requests.codes.ok:
+            ret_data = {}
+            data = response.json()["data"]
+            for item in data:
+                address = item["address"]
+                value = json.loads(
+                    base64.b64decode(item["data"]).decode()
+                )
+                ret_data[address] = value
+            return ret_data
+        else:
+            response.raise_for_status()
 
     @transaction
     def deposit(self, name, amount):
@@ -193,6 +215,49 @@ class Operation:
             params=params,
         )
         return response.json()["data"]
+
+
+class Admin:
+    def __init__(self):
+        self.oper = Operation()
+        self.cache_path = pathlib.Path("cache")
+
+    def lst(self, check=False):
+        data = self.oper.get_list()
+        data = self.parse(data)
+        if check:
+            self.sync(data)
+        info_str = "All accounts' information: \n"
+        acc_info = []
+        for name, value in data.items():
+            acc_info.append(f"Account name: {name}, balance: ${value['balance']}\n")
+        info_str = ''.join([info_str, *acc_info])
+        logger.info(info_str)
+    
+    def parse(self, data):
+        " Parse dict struct {address: {name: , balance: }} into {name: {address: , balance:}}"
+        n_dict = {}
+        for address, value in data.items():
+            name = value["name"]
+            balance = value["balance"]
+            n_dict[name] = {
+                "address": address,
+                "balance": balance,
+            }
+        return n_dict
+
+    def sync(self, data):
+        for name, value in data.items():
+            account_info = {
+                "name": name,
+                "balance": value["balance"],
+            }
+            cache_file = self.cache_path / f"{name}.json"
+            f = open(cache_file, "w")
+            json.dump(account_info, f)
+            f.close()
+            logger.info(f"Account {name} is synchronized")
+        logger.info(f"All accounts are synchronized")
 
 
 class Wallet:
