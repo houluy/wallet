@@ -86,13 +86,7 @@ class Operation:
         else:
             res_js = response.json()
             status_link = res_js["link"]
-        #try:
-        #    print("Retrieving transaction receipt...")
-        #    response = requests.get(status_link)
-        #    print(response.text)
-        #except HTTPError as e:
-        #    print(e)
-
+        
     def get_address(self, name):
         return self.family_prefix + sha512(name.encode()).hexdigest()[:constant.ADDRESS_SUFFIX_LEN]
 
@@ -102,6 +96,11 @@ class Operation:
             tx, txid = self.generate_transaction(payload, inputs, outputs)
             batch_id, batch_bytes = self.generate_batch_list(tx)
             self.request_txs(batch_bytes)
+            try:
+                print("Retrieving batch status...")
+                self.verify_batch_commit_status(batch_id)
+            except HTTPError as e:
+                print(e)
             return txid, batch_id
         return wrapper
 
@@ -215,6 +214,26 @@ class Operation:
             params=params,
         )
         return response.json()["data"]
+
+    def get_status(self, batch_id, wait=1):
+        status_url = urllib.parse.urljoin(self.base_url, "batch_statuses")
+        params = {
+            "id": batch_id,
+            "wait": wait,
+        }
+        response = requests.get(status_url, params=params)
+        return response
+
+    def verify_batch_commit_status(self, batch_id, wait=2):
+        start_time = time.monotonic()
+        wait_time = 0
+        while wait_time < wait:
+            response = self.get_status(batch_id, wait - wait_time)
+            status = response.json()["data"][0]["status"]
+            print(status)
+            if status != "PENDING":
+                return True
+            wait_time = time.monotonic() - start_time
 
 
 class Admin:

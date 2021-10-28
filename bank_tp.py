@@ -83,7 +83,7 @@ class TransferTransactionHandler(TransactionHandler):
         elif amount < 0:
             abs_amount = abs(amount)
             if abs_amount > balance:
-                raise OutOfBalanceError(f"Account {account_name} does not have enough money (${balance}) to withdraw (${abs_amount}). ")
+                raise InvalidTransaction(f"Account {account_name} does not have enough money (${balance}) to withdraw (${abs_amount}). ")
             operation = "Withdraw"
             prep = "from"
         account_data["balance"] += amount
@@ -98,13 +98,11 @@ class TransferTransactionHandler(TransactionHandler):
         key = payload["key"]
         account_address, account_data = self.get_data_by_name(account_name, context)
         try:
-            print(account_data)
             value = account_data[key]
         except KeyError:
             raise InvalidTransaction(f"Key {key} does not exist in account {account_name}.")
         else:
             value_bytes = struct.pack("<I", value)
-            print(value_bytes)
             context.add_receipt_data(value_bytes, timeout=constant.TXTIMEOUT)
         logger.info(f"Query {key} from {account_name} got value {value}")
 
@@ -133,24 +131,19 @@ class TransferTransactionHandler(TransactionHandler):
             return [json.loads[i.data] for i in data]
         else:
             data = context.get_state([addresses])[0].data
-            print(addresses, data)
             return json.loads(data)
 
     def get_address(self, name):
         return self._namespace_prefix + hashlib.sha512(name.encode()).hexdigest()[:constant.ADDRESS_SUFFIX_LEN]
 
     def apply(self, transaction, context):
-        try:
-            header = transaction.header
-            payload = transaction.payload
-            signature = transaction.signature
-            context_id = transaction.context_id
-            payload = json.loads(payload.decode())
-            operation = payload["typ"]
-            self.dispatch(operation, payload, context)
-        except Exception as e:
-            print(e)
-
+        header = transaction.header
+        payload = transaction.payload
+        signature = transaction.signature
+        context_id = transaction.context_id
+        payload = json.loads(payload.decode())
+        operation = payload["typ"]
+        self.dispatch(operation, payload, context)
 
 def install_tp():
     url = "tcp://127.0.0.1:4004"

@@ -45,6 +45,7 @@ def query(args):
 
 def lst(args):
     check = args.check
+    print(check)
     admin = Admin()
     admin.lst(check)
 
